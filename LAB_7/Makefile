@@ -4,4 +4,4 @@ main: main.c
 	gcc -Wall -Wextra -o main main.c libcalc.a
 
 clean:
-	rm -f *.o libcalc.a calculator
+	rm -f *.o libcalc.a main
