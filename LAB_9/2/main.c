@@ -280,7 +280,7 @@ int main (void) {
 							strcat(str_run, files1[pos1].files + 1);
 							args[0] = str_run;
 							args[1] = NULL;
-							args[2] = NULL;
+							//args[2] = NULL;
 						}
 					}
 					else { // переход в директорию
@@ -308,7 +308,7 @@ int main (void) {
 							strcpy(str_run, files2[pos2].files + 1);
 							args[0] = str_run;
 							args[1] = NULL;
-							args[2] = NULL;
+							//args[2] = NULL;
 						}
 					}
 					else {
