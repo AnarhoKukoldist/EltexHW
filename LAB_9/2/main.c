@@ -190,6 +190,7 @@ int main (void) {
 							index = 0;
 							input[index] = '\0';
 							c_prev = c;
+							chdir("..");
 							continue;
 						}
 						else if (!strcmp(args[1], ".")) { // остаёмся в той же директории
@@ -213,6 +214,8 @@ int main (void) {
 									min1 = pos1;
 									max1 = (rows - 9 + pos1) < (file_count1 - pos1) ? (rows - 9 + pos1) : file_count1;
 								}
+
+								chdir(path1);
 							}
 							else {
 								for (i = 0; i < file_count2; i++) {
@@ -226,6 +229,8 @@ int main (void) {
 									min2 = pos2;
 									max2 = (rows - 9 + pos2) < (file_count2 - pos2) ? (rows - 9 + pos2) : file_count2;
 								}
+
+								chdir(path2);
 							}
 
 							index = 0;
@@ -277,10 +282,9 @@ int main (void) {
 							args[2] = NULL;
 						}
 						else {
-							strcat(str_run, files1[pos1].files + 1);
+							strcpy(str_run + 2, files1[pos1].files + 1);
 							args[0] = str_run;
 							args[1] = NULL;
-							//args[2] = NULL;
 						}
 					}
 					else { // переход в директорию
@@ -288,6 +292,7 @@ int main (void) {
 						pos1 = 0;
 						min1 = pos1;
 						max1 = (rows - 9 + pos1) < (file_count1 - pos1) ? (rows - 9 + pos1) : file_count1;
+						chdir(path1);
 						continue;
 					}
 				}
@@ -316,6 +321,7 @@ int main (void) {
 						pos2 = 0;
 						min2 = pos2;
 						max2 = (rows - 9 + pos2) < (file_count2 - pos2) ? (rows - 9 + pos2) : file_count2;
+						chdir(path2);
 						continue;
 					}
 				}
