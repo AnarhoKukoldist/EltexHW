@@ -33,4 +33,6 @@ int main (void) {
 
 		printf("%s:%d -> %s:%d: %s\n", inet_ntoa(src), ntohs(udp->source), inet_ntoa(dst), ntohs(udp->dest), buf + ip->ihl * 4 + sizeof(struct udphdr));
 	}
+
+	close(client_sock);
 }
