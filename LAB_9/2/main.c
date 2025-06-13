@@ -6,6 +6,7 @@
 #include <locale.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <stdio.h>
 //#include <wchar.h>
 
 #define MAX_FILE_COUNT 1900
@@ -115,6 +116,7 @@ int main (void) {
 	noecho();
     nodelay(stdscr, TRUE);
 	keypad(stdscr, TRUE);
+	mousemask(ALL_MOUSE_EVENTS, NULL);
 
 	char input[256] = "\0"; // строка для bash
 	char temp_input[256] = "\0"; // доп строка для bash на тот случай, если пользователь захочет скоректировать строку через стрелки влево, вправо
@@ -190,7 +192,6 @@ int main (void) {
 							index = 0;
 							input[index] = '\0';
 							c_prev = c;
-							chdir("..");
 							continue;
 						}
 						else if (!strcmp(args[1], ".")) { // остаёмся в той же директории
@@ -214,8 +215,6 @@ int main (void) {
 									min1 = pos1;
 									max1 = (rows - 9 + pos1) < (file_count1 - pos1) ? (rows - 9 + pos1) : file_count1;
 								}
-
-								chdir(path1);
 							}
 							else {
 								for (i = 0; i < file_count2; i++) {
@@ -229,8 +228,6 @@ int main (void) {
 									min2 = pos2;
 									max2 = (rows - 9 + pos2) < (file_count2 - pos2) ? (rows - 9 + pos2) : file_count2;
 								}
-
-								chdir(path2);
 							}
 
 							index = 0;
@@ -238,6 +235,13 @@ int main (void) {
 							c_prev = c;
 							continue;
 						}
+					}
+
+					if (prev_pos1 != -1) {
+						chdir(path1);
+					}
+					else {
+						chdir(path2);
 					}
 
 					endwin();
@@ -266,7 +270,7 @@ int main (void) {
 			else if (c_prev == KEY_DOWN || c_prev == KEY_UP || index == 0) { // переход в директорию / nano / запуск исполняемого файла из правого / левого окна
 				char* args[3];
 				char* str_nano = "nano";
-				char str_run[128] = "./";
+				char str_run[1024] = "./";
 				int dir_count;
 
 				if (prev_pos1 != -1) {
@@ -277,11 +281,16 @@ int main (void) {
 					}
 					if (pos1 >= dir_count) { // nano / запуск исполняемого файла
 						if (files1[pos1].files[0] == ' ') {
+							char buf[1024];
+							strcpy(buf, path1);
+							buf[strlen(path1)] = '/';
+							strcpy(buf + strlen(path1) + 1, files1[pos1].files + 1);
 							args[0] = str_nano;
-							args[1] = files1[pos1].files + 1;
+							args[1] = buf;
 							args[2] = NULL;
 						}
 						else {
+							chdir(path1);
 							strcpy(str_run + 2, files1[pos1].files + 1);
 							args[0] = str_run;
 							args[1] = NULL;
@@ -292,7 +301,6 @@ int main (void) {
 						pos1 = 0;
 						min1 = pos1;
 						max1 = (rows - 9 + pos1) < (file_count1 - pos1) ? (rows - 9 + pos1) : file_count1;
-						chdir(path1);
 						continue;
 					}
 				}
@@ -305,15 +313,19 @@ int main (void) {
 
 					if (pos2 >= dir_count) {
 						if (files2[pos2].files[0] == ' ') {
+							char buf[1024];
+							strcpy(buf, path2);
+							buf[strlen(path2)] = '/';
+							strcpy(buf + strlen(path2) + 1, files2[pos2].files + 1);
 							args[0] = str_nano;
-							args[1] = files2[pos2].files + 1;
+							args[1] = buf;
 							args[2] = NULL;
 						}
 						else {
-							strcpy(str_run, files2[pos2].files + 1);
+							chdir(path2);
+							strcpy(str_run + 2, files2[pos2].files + 1);
 							args[0] = str_run;
 							args[1] = NULL;
-							//args[2] = NULL;
 						}
 					}
 					else {
@@ -321,7 +333,6 @@ int main (void) {
 						pos2 = 0;
 						min2 = pos2;
 						max2 = (rows - 9 + pos2) < (file_count2 - pos2) ? (rows - 9 + pos2) : file_count2;
-						chdir(path2);
 						continue;
 					}
 				}
