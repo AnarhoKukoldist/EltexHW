@@ -259,6 +259,17 @@ int main (void) {
 					}
 					else {
 						waitpid(pid, NULL, 0);
+
+						file_count1 = dir_files(files1, path1, &new_path);
+						pos1 = 0;
+						min1 = pos1;
+						max1 = rows - 9 < file_count1 - pos1 ? rows - 9 : file_count1;
+
+						file_count2 = dir_files(files2, path2, &new_path);
+						pos2 = 0;
+						min2 = pos2;
+						max2 = rows - 9 < file_count2 - pos2 ? rows - 9 : file_count2;
+
 						initscr(); // Возвращаем ncurses после завершения команды
         				refresh();
 					}
