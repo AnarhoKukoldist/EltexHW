@@ -57,13 +57,17 @@ int main (void) {
 			continue;
         }
 
-        udp = (struct udphdr *)(buf_recv + 20); // первые 20 байт - ip заголовок
+        ip = (struct iphdr *)buf_recv;
+        udp = (struct udphdr *)(buf_recv + ip->ihl * 4); // первые 20 байт - ip заголовок
+        src.s_addr = ip->saddr;
+
+        //printf("1\n");
+        //printf("Сообщение от клиента %s:%d -> %s\n", inet_ntoa(src), ntohs(udp->dest), buf_recv + ip->ihl * 5 + sizeof(struct udphdr));
 
         if (udp->dest == htons(SERVER_PORT)) {
-            ip = (struct iphdr *)buf_recv;
             src.s_addr = ip->saddr;
 
-            printf("Сообщение от клиента %s:%d -> %s\n", inet_ntoa(src), ntohs(udp->source), buf_recv + 20 + sizeof(struct udphdr));
+            printf("Сообщение от клиента %s:%d -> %s\n", inet_ntoa(src), ntohs(udp->source), buf_recv + ip->ihl * 4 + sizeof(struct udphdr));
 
             if (!size) {
                 create(&client_data);
@@ -89,9 +93,9 @@ int main (void) {
                 size++;
             }
 
-            strcpy(buf_send + sizeof(struct udphdr), buf_recv + 20 + sizeof(struct udphdr));
+            strcpy(buf_send + sizeof(struct udphdr), buf_recv + ip->ihl * 4 + sizeof(struct udphdr));
 
-            int i = ntohs(ip->tot_len) - 20; // конец payload
+            int i = ntohs(ip->tot_len) - ip->ihl * 4; // конец payload
 
             buf_send[i - 1] = ' ';
             buf_send[i] = client_data[temp].counter  + '0';

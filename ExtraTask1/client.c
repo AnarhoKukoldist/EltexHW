@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <netinet/ip.h>
 #include <netinet/udp.h>
 
 #define OWN_PORT 6666
@@ -13,7 +14,7 @@ int main (void) {
     int client_sock;
     char buf[SIZE];
     struct sockaddr_in server;
-
+    struct iphdr* ip;
     struct udphdr* udp;
 
     client_sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
@@ -32,10 +33,12 @@ int main (void) {
         exit(EXIT_FAILURE);
     }
 
-    int i = sizeof(struct udphdr);
+    int i;
     char c;
 
     while (1) {
+        i = sizeof(struct udphdr);
+
         printf("Введите ваше сообщение: ");
         while ((c = getchar()) != '\n' && (i < SIZE - sizeof(struct udphdr) - 2)) { // -2, чтобы учесть преобразование payload со стороны сервера
             buf[i++] = c;
@@ -49,7 +52,9 @@ int main (void) {
         udp->len = htons(i);
         udp->check = 0;
 
-        ssize_t send_len = sendto(client_sock, buf, i, 0, (struct sockaddr *)&server, sizeof(server));
+        printf("msg: %s\n", buf + sizeof(struct udphdr));
+
+        ssize_t send_len = sendto(client_sock, buf, i + 1, 0, (struct sockaddr *)&server, sizeof(server));
 
         if (send_len < 0) {
             perror("Ошибка: не удалось отправить сообщение");
@@ -57,7 +62,7 @@ int main (void) {
             exit(EXIT_FAILURE);
         }
 
-        ssize_t recv_len = recvfrom(client_sock, buf, i + 2, 0, NULL, NULL);
+        ssize_t recv_len = recvfrom(client_sock, buf, SIZE, 0, NULL, NULL);
 
         if (recv_len < 0) {
             perror("Ошибка: не удалось принять сообщение");
@@ -65,10 +70,11 @@ int main (void) {
             exit(EXIT_FAILURE);
         }
 
-        udp = (struct udphdr *)(buf + 20); // 20 байт под ip заголовок
+        ip = (struct iphdr *)buf;
+        udp = (struct udphdr *)(buf + ip->ihl * 4);
 
         if (udp->dest == htons(OWN_PORT)) {
-            printf("Сообщение от сервера: %s\n", buf + 20 + sizeof(struct udphdr));
+            printf("Сообщение от сервера: %s\n", buf + ip->ihl * 4 + sizeof(struct udphdr));
         }
     }
 
