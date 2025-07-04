@@ -117,6 +117,7 @@ int main (void) {
         }
     }
 
+    free(client_data);
     close(server_sock);
     return 0;
 }
