@@ -61,9 +61,6 @@ int main (void) {
         udp = (struct udphdr *)(buf_recv + ip->ihl * 4); // первые 20 байт - ip заголовок
         src.s_addr = ip->saddr;
 
-        //printf("1\n");
-        //printf("Сообщение от клиента %s:%d -> %s\n", inet_ntoa(src), ntohs(udp->dest), buf_recv + ip->ihl * 5 + sizeof(struct udphdr));
-
         if (udp->dest == htons(SERVER_PORT)) {
             src.s_addr = ip->saddr;
 
@@ -72,7 +69,7 @@ int main (void) {
             if (!size) {
                 create(&client_data);
             }
-            else if (size % 10 == 0) { // когда количество записей становится кратно 10, тогда увеличивает массив ещё на 10
+            else if (size % 10 == 0) { // когда количество записей становится кратно 10, тогда массив увеличивает ещё на 10
                 increase(&client_data, size + 10);
             }
 
@@ -92,6 +89,10 @@ int main (void) {
                 client_data[temp].counter = 1;
                 size++;
             }
+            else if (temp != size && !strcmp(buf_recv + ip->ihl * 4 + sizeof(struct udphdr), "exit")) { // обнуляем счётчик при отключении клиента
+                client_data[temp].counter = 0;
+                continue;
+            }
 
             strcpy(buf_send + sizeof(struct udphdr), buf_recv + ip->ihl * 4 + sizeof(struct udphdr));
 
@@ -106,13 +107,13 @@ int main (void) {
             udp_send->dest = udp->source;
             udp_send->source = udp->dest;
             udp_send->check = 0;
-            udp_send->len = htons(i + 1); // чтобы учесть изменения в payload
+            udp_send->len = htons(i + 2);
 
             client.sin_family = AF_INET;
             client.sin_port = udp_send->dest;
-            client.sin_addr.s_addr = ip->saddr;
+            client.sin_addr.s_addr = ip->daddr;
 
-            sendto(server_sock, buf_send, i + 1, 0, (struct sockaddr *)&client, sizeof(client));
+            sendto(server_sock, buf_send, i + 2, 0, (struct sockaddr *)&client, sizeof(client));
         }
     }
 

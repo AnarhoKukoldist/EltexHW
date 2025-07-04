@@ -5,15 +5,39 @@
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#include <signal.h>
 
 #define OWN_PORT 6666
 #define SERVER_PORT 7777
 #define SIZE 2048
 
-int main (void) {
-    int client_sock;
+int client_sock;
+struct sockaddr_in server;
+
+void handle_sigint(int sig) {
     char buf[SIZE];
-    struct sockaddr_in server;
+    struct udphdr *udp = (struct udphdr *)buf;
+    const char *exit_msg = "exit";
+
+    strcpy(buf + sizeof(struct udphdr), exit_msg);
+
+    udp->source = htons(OWN_PORT);
+    udp->dest = htons(SERVER_PORT);
+    udp->len = htons(sizeof(struct udphdr) + strlen(exit_msg) + 1);
+    udp->check = 0;
+
+    sendto(client_sock, buf, sizeof(struct udphdr) + strlen(exit_msg) + 1, 0,
+           (struct sockaddr *)&server, sizeof(server));
+
+    printf("\nДо свидания!\n");
+
+    close(client_sock);
+    exit(0);
+}
+
+int main (void) {
+    int i;
+    char buf[SIZE], c;
     struct iphdr* ip;
     struct udphdr* udp;
 
@@ -33,8 +57,9 @@ int main (void) {
         exit(EXIT_FAILURE);
     }
 
-    int i;
-    char c;
+    signal(SIGINT, handle_sigint);
+
+    printf("Для выхода напечайте exit.\n");
 
     while (1) {
         i = sizeof(struct udphdr);
@@ -52,8 +77,6 @@ int main (void) {
         udp->len = htons(i);
         udp->check = 0;
 
-        printf("msg: %s\n", buf + sizeof(struct udphdr));
-
         ssize_t send_len = sendto(client_sock, buf, i + 1, 0, (struct sockaddr *)&server, sizeof(server));
 
         if (send_len < 0) {
@@ -62,19 +85,27 @@ int main (void) {
             exit(EXIT_FAILURE);
         }
 
-        ssize_t recv_len = recvfrom(client_sock, buf, SIZE, 0, NULL, NULL);
-
-        if (recv_len < 0) {
-            perror("Ошибка: не удалось принять сообщение");
-            close(client_sock);
-            exit(EXIT_FAILURE);
+        if (!strcmp(buf + sizeof(struct udphdr), "exit")) {
+            printf("До свидания!\n");
+            break;
         }
 
-        ip = (struct iphdr *)buf;
-        udp = (struct udphdr *)(buf + ip->ihl * 4);
+        while (1) { // чтобы точно получить то самое сообщение от сервера
+            ssize_t recv_len = recvfrom(client_sock, buf, SIZE, 0, NULL, NULL);
 
-        if (udp->dest == htons(OWN_PORT)) {
-            printf("Сообщение от сервера: %s\n", buf + ip->ihl * 4 + sizeof(struct udphdr));
+            if (recv_len < 0) {
+                perror("Ошибка: не удалось принять сообщение");
+                close(client_sock);
+                exit(EXIT_FAILURE);
+            }
+
+            ip = (struct iphdr *)buf;
+            udp = (struct udphdr *)(buf + ip->ihl * 4);
+
+            if (udp->dest == htons(OWN_PORT)) {
+                printf("Сообщение от сервера: %s\n", buf + ip->ihl * 4 + sizeof(struct udphdr));
+                break;
+            }
         }
     }
 
