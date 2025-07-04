@@ -2,49 +2,51 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <time.h>
+#include <poll.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <time.h>
+#include <errno.h>
 
-#define MAX_DRIVERS 100
+#define MAX_DRIVERS 16
+#define BUF_SIZE 128
 
-typedef enum { AVAILABLE, BUSY } State;
+enum DriverState {
+    AVAILABLE,
+    BUSY
+};
 
 typedef struct {
     pid_t pid;
-    int to_driver;
-    int from_driver;
+    int to_driver[2];
+    int from_driver[2];
+    enum DriverState state;
+    int waiting_for_status;
 } Driver;
 
 Driver drivers[MAX_DRIVERS];
 int driver_count = 0;
 
-// Логика драйвера
-volatile State state = AVAILABLE;
-volatile time_t busy_until = 0;
-int write_fd = -1;
-
-void handle_available(int sig) {
-    state = AVAILABLE;
-    if (write_fd != -1) {
-        dprintf(write_fd, "Available\n");
-    }   
+void print_help() {
+    printf("Available commands:\n");
+    printf("  create_driver\n");
+    printf("  send_task <pid> <task_timer>\n");
+    printf("  get_status <pid>\n");
+    printf("  get_drivers\n");
+    printf("  help\n");
+    printf("  exit\n");
 }
 
-void run_driver(int read_fd, int w_fd) {
-    write_fd = w_fd;
-    signal(SIGUSR1, handle_available);
+void run_driver(int read_fd, int write_fd) {
+    enum DriverState state = AVAILABLE;
+    time_t busy_until = 0;
 
-    char buf[128];
+    char buf[BUF_SIZE];
 
     while (1) {
         ssize_t n = read(read_fd, buf, sizeof(buf) - 1);
-
-        if (n <= 0) {
-            break;
-        }
-
+        if (n <= 0) break;
         buf[n] = '\0';
 
         if (strncmp(buf, "send_task", 9) == 0) {
@@ -67,22 +69,18 @@ void run_driver(int read_fd, int w_fd) {
                 kill(getppid(), SIGUSR1);
                 exit(0);
             }
-
             dprintf(write_fd, "OK\n");
-        } 
-        else if (strncmp(buf, "get_status", 10) == 0) {
+        } else if (strncmp(buf, "get_status", 10) == 0) {
             time_t now = time(NULL);
             if (state == BUSY) {
                 if (now >= busy_until) {
                     state = AVAILABLE;
                     dprintf(write_fd, "Available\n");
-                } 
-                else {
+                } else {
                     int remaining = (int)(busy_until - now);
                     dprintf(write_fd, "Busy %d\n", remaining);
                 }
-            } 
-            else {
+            } else {
                 dprintf(write_fd, "Available\n");
             }
         }
@@ -91,135 +89,178 @@ void run_driver(int read_fd, int w_fd) {
 
 void create_driver() {
     if (driver_count >= MAX_DRIVERS) {
-        printf("Maximum number of drivers reached.\n");
+        printf("Max drivers reached\n");
         return;
     }
 
-    int to_driver[2];
-    int from_driver[2];
-    pipe(to_driver);
-    pipe(from_driver);
+    int to_driver_pipe[2];
+    int from_driver_pipe[2];
+
+    if (pipe(to_driver_pipe) < 0 || pipe(from_driver_pipe) < 0) {
+        perror("pipe");
+        return;
+    }
 
     pid_t pid = fork();
-    
-    if (pid == 0) {
-        close(to_driver[1]);
-        close(from_driver[0]);
-        run_driver(to_driver[0], from_driver[1]);
-        exit(0);
+    if (pid < 0) {
+        perror("fork");
+        return;
     }
 
-    close(to_driver[0]);
-    close(from_driver[1]);
+    if (pid == 0) {
+        close(to_driver_pipe[1]);
+        close(from_driver_pipe[0]);
 
-    drivers[driver_count].pid = pid;
-    drivers[driver_count].to_driver = to_driver[1];
-    drivers[driver_count].from_driver = from_driver[0];
-    driver_count++;
+        run_driver(to_driver_pipe[0], from_driver_pipe[1]);
+        exit(0);
+    } 
+    else {
+        close(to_driver_pipe[0]);
+        close(from_driver_pipe[1]);
 
-    printf("Created driver with PID %d\n", pid);
+        drivers[driver_count].pid = pid;
+        drivers[driver_count].to_driver[1] = to_driver_pipe[1];
+        drivers[driver_count].from_driver[0] = from_driver_pipe[0];
+        drivers[driver_count].state = AVAILABLE;
+        printf("Driver created with pid %d\n", pid);
+        driver_count++;
+    }
 }
 
-Driver* find_driver(pid_t pid) {
+int find_driver_by_pid(pid_t pid) {
     for (int i = 0; i < driver_count; i++) {
         if (drivers[i].pid == pid) {
-            return &drivers[i];
+            return i;
         }
     }
-    return NULL;
+    return -1;
 }
 
 void send_task(pid_t pid, int task_time) {
-    Driver* d = find_driver(pid);
-    if (!d) {
-        printf("Driver %d not found\n", pid);
+    int idx = find_driver_by_pid(pid);
+
+    if (idx < 0) {
+        printf("No such driver\n");
         return;
     }
 
-    dprintf(d->to_driver, "send_task %d\n", task_time);
-
-    char buf[128];
-    ssize_t n = read(d->from_driver, buf, sizeof(buf) - 1);
-    if (n > 0) {
-        buf[n] = '\0';
-        printf("Driver %d: %s", pid, buf);
-    }
+    char cmd[BUF_SIZE];
+    snprintf(cmd, sizeof(cmd), "send_task %d\n", task_time);
+    write(drivers[idx].to_driver[1], cmd, strlen(cmd));
 }
 
 void get_status(pid_t pid) {
-    Driver* d = find_driver(pid);
-    if (!d) {
-        printf("Driver %d not found\n", pid);
+    int idx = find_driver_by_pid(pid);
+
+    if (idx < 0) {
+        printf("No such driver\n");
         return;
     }
 
-    dprintf(d->to_driver, "get_status\n");
-
-    char buf[128];
-    ssize_t n = read(d->from_driver, buf, sizeof(buf) - 1);
-    if (n > 0) {
-        buf[n] = '\0';
-        printf("Driver %d: %s", pid, buf);
-    }
+    drivers[idx].waiting_for_status = 1;
+    char cmd[] = "get_status\n";
+    write(drivers[idx].to_driver[1], cmd, strlen(cmd));
 }
 
 void get_drivers() {
     for (int i = 0; i < driver_count; i++) {
-        printf("Driver %d: ", drivers[i].pid);
-        dprintf(drivers[i].to_driver, "get_status\n");
-
-        char buf[128];
-        ssize_t n = read(drivers[i].from_driver, buf, sizeof(buf) - 1);
-        if (n > 0) {
-            buf[n] = '\0';
-            printf("%s", buf);
-        } 
-        else {
-            printf("No response\n");
-        }
+        get_status(drivers[i].pid);
     }
 }
 
 int main() {
-    char cmd[128];
+    struct pollfd fds[MAX_DRIVERS + 1];
+    char input_buf[BUF_SIZE];
 
-    printf("Taxi CLI started. Commands: create_driver, send_task <pid> <seconds>, get_status <pid>, get_drivers\n");
+    print_help();
 
     while (1) {
         printf("> ");
         fflush(stdout);
+        
+        fds[0].fd = 0;
+        fds[0].events = POLLIN;
 
-        if (!fgets(cmd, sizeof(cmd), stdin)) {
+        for (int i = 0; i < driver_count; i++) {
+            fds[i + 1].fd = drivers[i].from_driver[0];
+            fds[i + 1].events = POLLIN;
+        }
+
+        int ret = poll(fds, driver_count + 1, -1);
+        if (ret < 0) {
+            perror("poll");
             break;
         }
 
-        if (strncmp(cmd, "create_driver", 13) == 0) {
-            create_driver();
-        } 
-        else if (strncmp(cmd, "send_task", 9) == 0) {
-            pid_t pid;
-            int sec;
-            if (sscanf(cmd + 10, "%d %d", &pid, &sec) == 2) {
-                send_task(pid, sec);
-            } else {
-                printf("Usage: send_task <pid> <seconds>\n");
+        if (fds[0].revents & POLLIN) {
+            ssize_t n = read(0, input_buf, sizeof(input_buf) - 1);
+            if (n <= 0) {
+                printf("EOF on stdin, exiting\n");
+                break;
             }
-        } 
-        else if (strncmp(cmd, "get_status", 10) == 0) {
-            pid_t pid;
-            if (sscanf(cmd + 11, "%d", &pid) == 1) {
-                get_status(pid);
+            input_buf[n] = '\0';
+
+            if (strncmp(input_buf, "create_driver", 13) == 0) {
+                create_driver();
             } 
-            else {
-                printf("Usage: get_status <pid>\n");
+            else if (strncmp(input_buf, "send_task", 9) == 0) {
+                pid_t pid;
+                int task_time;
+                if (sscanf(input_buf + 10, "%d %d", &pid, &task_time) == 2) {
+                    send_task(pid, task_time);
+                } 
+                else {
+                    printf("Usage: send_task <pid> <task_time>\n");
+                }
+            } 
+            else if (strncmp(input_buf, "get_status", 10) == 0) {
+                pid_t pid;
+                if (sscanf(input_buf + 11, "%d", &pid) == 1) {
+                    get_status(pid);
+                } 
+                else {
+                    printf("Usage: get_status <pid>\n");
+                }
+            } 
+            else if (strncmp(input_buf, "get_drivers", 11) == 0) {
+                get_drivers();
             }
-        } 
-        else if (strncmp(cmd, "get_drivers", 11) == 0) {
-            get_drivers();
-        } 
-        else {
-            printf("Unknown command\n");
+            else if (strncmp(input_buf, "help", 4) == 0) {
+                print_help();
+                continue;
+            }
+            else if (strncmp(input_buf, "exit", 4) == 0) {
+                printf("Exiting...\n");
+                break;
+            }
+            else {
+                printf("Unknown command\n");
+            }
         }
+
+        for (int i = 0; i < driver_count; i++) {
+            if (fds[i + 1].revents & POLLIN) {
+                char resp[BUF_SIZE];
+                ssize_t n = read(fds[i + 1].fd, resp, sizeof(resp) - 1);
+                if (n > 0) {
+                    resp[n] = '\0';
+                    if (drivers[i].waiting_for_status) {
+                        printf("Driver pid %d: %s", drivers[i].pid, resp);
+                        drivers[i].waiting_for_status = 0;
+                    } 
+                    else {
+                        printf("Response from driver %d: %s", drivers[i].pid, resp);
+                    }
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < driver_count; i++) {
+        close(drivers[i].to_driver[1]);
+        close(drivers[i].from_driver[0]);
+        kill(drivers[i].pid, SIGKILL);
+        waitpid(drivers[i].pid, NULL, 0);
     }
 
     return 0;
