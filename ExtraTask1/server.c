@@ -71,7 +71,6 @@ int main (void) {
             }
             else if (size % 10 == 0) { // когда количество записей становится кратно 10, тогда массив увеличивает ещё на 10
                 increase(&client_data, size + 10);
-                size += 10;
             }
 
             int temp;
