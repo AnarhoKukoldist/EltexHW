@@ -45,7 +45,7 @@ int main (void) {
     exit(EXIT_FAILURE);
     }
 
-    printf("Vvedite vashe soobshenie: ");
+    printf("Введите ваше сообщение: ");
 
     int i = sizeof(struct ethhdr) + 20 + sizeof(struct udphdr);
     char c;
