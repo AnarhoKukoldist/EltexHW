@@ -15,12 +15,11 @@
 #define SIZE 2048
 
 int checksum (char* buf) {
-    int csum = 0;
+    unsigned int csum = 0;
     short* ptr = (short *)buf;
 
     for (int i = 0; i < 10; i++) {
-        csum += *ptr;
-        ptr++;
+        csum += ntohs(ptr[i]);
     }
 
     csum = (csum & 0xFFFF) + (csum >> 16);
@@ -32,28 +31,30 @@ int checksum (char* buf) {
 int main (void) {
     int client_sock;
     char buf[SIZE];
-    unsigned char dst_mac[6] = {0x70, 0x1a, 0xb8, 0x04, 0x91, 0xc9};
+    unsigned char dst_mac[6] = {0x08, 0x00, 0x27, 0x09, 0x96, 0x23};
     struct sockaddr_ll server;
-    struct ifreq ifr
+    struct ifreq ifr;
     struct ethhdr* eth = (struct ethhdr *)buf;
-    struct iphdr* ip = (struct iphdr *)(buf + sizeof(ethhdr));
-    struct udphdr* udp = (struct udphdr *)(buf + sizeof(ethhdr) + 20);
+    struct iphdr* ip = (struct iphdr *)(buf + sizeof(struct ethhdr));
+    struct udphdr* udp = (struct udphdr *)(buf + sizeof(struct ethhdr) + 20);
 
     client_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
     if (client_sock < 0) {
         perror("Ошибка: не удалось создать сокет");
-		exit(EXIT_FAILURE);
+    exit(EXIT_FAILURE);
     }
 
-    int i = sizeof(ethhdr) + 20 + sizeof(struct udphdr);
+    printf("Vvedite vashe soobshenie: ");
+
+    int i = sizeof(struct ethhdr) + 20 + sizeof(struct udphdr);
     char c;
     while ((c = getchar()) != '\n' && i < SIZE) {
         buf[i++] = c;
     }
     buf[i] = '\0';
 
-    strncpy(ifr.ifr_name, "wlo1", IFNAMESIZ - 1);
+    strncpy(ifr.ifr_name, "enp0s3", IFNAMSIZ - 1);
     ioctl(client_sock, SIOCGIFHWADDR, &ifr);
     memcpy(eth->h_source, ifr.ifr_hwaddr.sa_data, 6);
     memcpy(eth->h_dest, dst_mac, 6);
@@ -62,27 +63,27 @@ int main (void) {
     ip->ihl = 5;
     ip->version = 4;
     ip->tos = 0;
-    ip->tot_len = htons(i - sizeof(struct ethhdr));
+    ip->tot_len = htons(i - sizeof(struct ethhdr) + 1);
     ip->id = htons(0);
     ip->frag_off = 0;
     ip->ttl = 64;
     ip->protocol = IPPROTO_UDP;
     ip->check = 0;
-    ip->saddr = inet_addr("192.168.0.3");
-    ip->daddr = inet_addr("192.168.0.1");
+    ip->saddr = inet_addr("192.168.0.10");
+    ip->daddr = inet_addr("192.168.0.9");
 
-    ip->check = checksum(buf + sizeof(struct ethhdr));
+    ip->check = htons(checksum(buf + sizeof(struct ethhdr)));
 
     udp->source = htons(OWN_PORT);
     udp->dest = htons(SERVER_PORT);
     udp->check = 0;
-    udp->len = htons(i - sizeof(struct ethhdr) - 20);
+    udp->len = htons(i - sizeof(struct ethhdr) - 20 + 1);
 
     server.sll_family = AF_PACKET;
-    server.ssl_ifindex = if_nametoindex("wlo1");
-    server.ssl_halen = 6;
+    server.sll_ifindex = if_nametoindex("enp0s3");
+    server.sll_halen = 6;
 
-    ssize_t send_len = sendto(client_sock, buf, i, 0, server, sizeof(server));
+    ssize_t send_len = sendto(client_sock, buf, i + 1, 0, (struct sockaddr *)&server, sizeof(server));
 
     if (send_len < 0) {
         perror("Ошибка: не удалось отправить сообщение");
@@ -91,16 +92,16 @@ int main (void) {
     }
 
     while (1) {
-        ssize_t recv_len = recvfrom(client_sock, buf, SIZE, NULL, NULL);
+        ssize_t recv_len = recvfrom(client_sock, buf, SIZE, 0, NULL, NULL);
 
         if (recv_len < 0) {
-			perror("Ошибка: не удалось принять пакет");
-			continue;
+      perror("Ошибка: не удалось принять пакет");
+      continue;
         }
 
         if ((ip->protocol == IPPROTO_UDP) && (udp->dest == htons(OWN_PORT))) {
             struct in_addr src;
-		    src.s_addr = ip->saddr;
+        src.s_addr = ip->saddr;
 
             printf("Сообщение от сервера %s:%d -> %s\n", inet_ntoa(src), ntohs(udp->source), buf + sizeof(struct ethhdr) + 20 + sizeof(struct udphdr));
         }

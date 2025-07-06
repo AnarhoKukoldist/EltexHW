@@ -4,6 +4,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define SERVER_PORT 7777
+
 int main (void) {
     srand(time(NULL));
 
@@ -22,7 +24,7 @@ int main (void) {
 
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = 0;
+    server.sin_port = htons(SERVER_PORT);
 
     if (bind(server_sock, (struct sockaddr *)&server, server_len) < 0) {
         perror("Ошибка: не удалось не удалось привязать порт к сокету.");
@@ -35,17 +37,6 @@ int main (void) {
         close(server_sock);
         exit(EXIT_FAILURE);
     }
-
-    FILE* file = fopen("port.txt", "w");
-
-    if (!file) {
-        perror("Ошибка: не удалось открыть файл.");
-        close(server_sock);
-        exit(EXIT_FAILURE);
-    }
-
-    fprintf(file, "%d", ntohs(server.sin_port));
-    fclose(file);
 
     while (1) {
         ssize_t recv_len = recvfrom(server_sock, buf, sizeof(buf), 0, (struct sockaddr *)&client, &client_len);
